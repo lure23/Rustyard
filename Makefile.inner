@@ -1,0 +1,47 @@
+_TARGET_ARCH:=riscv32-unknown-elf
+_MAKEFILE_INNER:=$(MAKEFILE_LIST)	# Makefile.inner
+
+_HEADERS:=some.h
+
+all:
+	@false
+
+#---
+# Build the static library
+#
+tmp/libsome.a: tmp/some.o
+	ar rcs $@ $<
+
+tmp/%.o: %.c $(_HEADERS)
+	@echo $<
+	clang -nostdinc --target=$(_TARGET_ARCH) -c -o $@ $<
+
+src/some.rs: $(_HEADERS) $(_MAKEFILE_INNER)
+	  RUST_LOG='warn,bindgen::ir=error' bindgen $< \
+	    --use-core -- -I. \
+	  > $@
+
+# Test for the above (for development, only)
+x: src/some.rs
+	grep -q API_REVISION $<
+	@#grep -q DEFAULT_I2C_ADDRESS $<
+	grep -q 'pub enum PowerMode' $<
+	grep -q vl53l5cx_init $<
+	grep -q vl53l5cx_get_ranging_data $<
+	! grep -q 'static VL53L5CX_FIRMWARE' $<
+	! grep -q vl53l5cx_is_alive $<
+	! grep -q vl53l5cx_get_resolution $<
+	! grep -q VL53L5CX_RdByte $<
+	@#
+	@echo ""
+	@echo "Yay!"
+
+_clean:
+	cargo clean
+	-rm src/some.rs tmp/*.a tmp/*.o
+
+echo:
+	@echo $(MAKEFILE_LIST)
+
+#--
+.PHONY: all _clean echo
