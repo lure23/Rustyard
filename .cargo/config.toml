@@ -36,3 +36,6 @@ runner = ["probe-rs", "run", "--chip=esp32c3", "--log-format={L} {s}"]
     #       '[...] --log-format {L} {s}'    # NBSP
 
 # For syntax, see -> https://defmt.ferrous-systems.com/custom-log-output#metadata-specifiers
+
+[env]
+DEFMT_LOG="debug"

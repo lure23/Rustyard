@@ -1,11 +1,9 @@
 #pragma once
 
-struct Platform;
-
 typedef struct {
-	/* Platform; something that comes from Rust application level
+	/* No use acting like we know which (Rust) type is behind that pointer. We don't.
 	*/
-	struct Platform *platform_p;
+	void *vp;
 	int count;
 } Context;
 

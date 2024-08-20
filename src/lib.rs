@@ -1,17 +1,8 @@
 #![no_std]
 
 mod some;
+mod platform;
 
-#[cfg(feature = "defmt")]
-use defmt::trace;
+pub use platform::RustPlatform;
+pub use some::{Context, tunnel};
 
-#[cfg(feature="defmt")]
-use defmt::{debug, warn};
-
-/**
-* @brief App provides
-*/
-pub trait PlatformT {
-    fn print_a(&mut self) -> ();
-    fn print_b(&mut self) -> ();
-}

@@ -3,9 +3,9 @@
 */
 #include "some.h"
 
-extern void surface(struct Platform **x);
+extern void surface(void *x);
 
 void tunnel(Context *p) {
     p->count++;
-    surface(&p->platform_p);
+    surface(p->vp);
 }
