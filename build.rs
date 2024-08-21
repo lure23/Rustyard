@@ -1,5 +1,7 @@
 const MAKEFILE_INNER: &str = "Makefile.inner";
 
+const DEFMT_LOG: &str ="debug";
+
 fn main() {
     // Detect when IDE is running us:
     //  - Rust Rover:
@@ -35,4 +37,9 @@ fn main() {
 
     println!("cargo:rustc-link-search=tmp");
     println!("cargo:rustc-link-lib=static=some");
+
+    // Steer 'defmt' default log level, but allow overrides.
+    if option_env!("DEFMT_LOG").is_none() {
+        println!("cargo:rustc-env=DEFMT_LOG={}", DEFMT_LOG);
+    }
 }

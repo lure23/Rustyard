@@ -13,20 +13,10 @@ rustflags = [
 ]
 
 [target.'cfg(all())']   # unconditional '[target]' #hack
-runner = ["probe-rs", "run", "--chip=esp32c3", "--log-format={L} {s}"]
-#runner = "probe-rs run --chip=esp32c3 --log-format {L}_{s}"     # works, when there's no space in the string
-
-# Note: Difficult to give '--log-format' with a space, from within 'config.toml'. Using the array approach is the
-#       recommended solution, but that's #yack.
-#
-#runner = 'probe-rs run --chip=esp32c3 --log-format "{L} {s}"'
-#       <<
-#           Running `probe-rs run --chip=esp32c3 --log-format '"{L}' '{s}"' target/riscv32imac-unknown-none-elf/release/examples/nada`
-#               -> fails
-#       <<
-#runner = ["probe-rs", "run", "--chip=esp32c3", "--log-format={L} {s}"]
-    # can work, but isn't it tedious!
-
+runner = ["probe-rs", "run", "--log-format={L} {s}"]
+    #
+    # Note: Using the '[...]' format is the ONLY WAY that a space can be expressed in the '--log-format' syntax!
+    #
     # Note: The author wasn't able to place a space in the '--log-format'. Tried:
     #       "[...] --log-format '{L} {s}'"
     #       "[...] --log-format \"{L} {s}\""
@@ -34,8 +24,5 @@ runner = ["probe-rs", "run", "--chip=esp32c3", "--log-format={L} {s}"]
     #       "[...] --log-format {L}\ {s}"
     #       '[...] --log-format {L}\ {s}'
     #       '[...] --log-format {L} {s}'    # NBSP
-
-# For syntax, see -> https://defmt.ferrous-systems.com/custom-log-output#metadata-specifiers
-
-[env]
-DEFMT_LOG="debug"
+    #
+    # For syntax, see -> https://defmt.ferrous-systems.com/custom-log-output#metadata-specifiers

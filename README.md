@@ -6,15 +6,17 @@ Minimal experiments to see, how things can be done in Rust.
 
 - Gnu `make`
 - `bindgen` >= 0.70.0
+- `probe-rs` > 0.24.0
+
+	```
+	$ cargo install probe-rs-tools --git https://github.com/probe-rs/probe-rs --locked --force
+	```
+	
 
 ## Steps
 
 ```
-$ DEFMT_LOG=debug cargo build --release --example a
-```
-
-```
-$ probe-rs run --chip=esp32c3 '--log-format={L} {s}' target/riscv32imc-unknown-none-elf/release/examples/a
+$ [DEFMT_LOG=debug] cargo run --release --example a
 ```
 
 
@@ -59,5 +61,5 @@ DEBUG Out of 'tunnel()'
 You can change the target board between ESP32-C3 (default) and ESP32-C6, by:
 
 ```
-$ set-target esp32c6
+$ ./set-target.sh
 ```
