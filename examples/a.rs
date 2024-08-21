@@ -7,6 +7,11 @@
 use defmt::{debug, info, error};
 use defmt_rtt as _;
 
+use core::{
+    ffi::c_void,
+    ptr::NonNull
+};
+use defmt::Format;
 use esp_backtrace as _;
 #[cfg(feature = "dingdong")]
 use esp_hal::{
@@ -20,9 +25,7 @@ use esp_hal::prelude::*;
 
 use static_cell::StaticCell;
 
-use rustyard::{
-    Context, RustPlatform, tunnel
-};
+use rustyard::{Context, tunnel, Platform};
 
 #[entry]
 fn main() -> ! {
@@ -61,3 +64,35 @@ fn main() -> ! {
     loop {}
 }
 
+// The struct that keeps state, passed through the C side.
+//
+#[derive(Format)]
+pub struct RustPlatform {
+    a: u8,
+    b: u16
+}
+
+impl RustPlatform {
+    pub fn new() -> Self {
+        Self {
+            a: 2, b: 0x0304
+        }
+    }
+}
+
+impl Platform for RustPlatform {
+    fn print(&self) {
+        info!("Platform is: {}", self)
+    }
+}
+
+#[no_mangle]
+extern "C"
+fn surface(vp: *mut c_void) {   // Called by C; 'vp' actually is '*mut RustPlatform'
+
+    let p: &mut RustPlatform = unsafe {
+        NonNull::new_unchecked(vp).cast::<RustPlatform>().as_mut()
+    };
+
+    p.print();
+}

@@ -14,5 +14,4 @@ Nightly Rust would have decomposition of `dyn Trait` to `addr` and `meta`, and a
 
 ### 2.
 
-In stable, we'd need to somehow expose the *application* class to the library.
-
+In stable, we moved the `surface` function (that the C side calls) *up from the `lib` to the application*. This seems to be possible, and takes away the need for an intermediate `dyn Trait`, since the application knows the concrete type, and can convert to it directly.

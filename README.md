@@ -49,7 +49,9 @@ INFO  Platform is: RustPlatform { a: 2, b: 772 }
 DEBUG Out of 'tunnel()'
 ```
 
-This has not been observed on ESP32-C6 boards (ESP32-DevKit-M01).
+>Note: This is a common thing using ESP32-C3 boards. Has not been observed on ESP32-C6 (ESP32-DevKit-M01, in particular).
+>
+>If you have both boards, use `set-target` and retry on that one.
 
 
 ## Advanced
