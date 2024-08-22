@@ -15,6 +15,9 @@
 use defmt::{debug, info, error};
 use defmt_rtt as _;
 
+#[cfg(feature="embedded-hal")]
+use embedded_hal::i2c::Operation as I2cOperation;
+use embedded_hal::i2c::SevenBitAddress;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -36,7 +39,7 @@ fn main() -> ! {
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let mut i2c = I2C::new(
+    let mut i2c: MyI2C = I2C::new(
         peripherals.I2C0,   // controller 0
         io.pins.gpio4,
         io.pins.gpio5,
@@ -44,7 +47,6 @@ fn main() -> ! {
         &clocks,
         None
     );
-    let mut i2c = MyI2C::new(I2C_ADDR, i2c);
 
     let delay_ms = {
         static D: StaticCell<Delay> = StaticCell::new();
@@ -64,7 +66,9 @@ fn main() -> ! {
     }
 }
 
-type MyI2C = I2C<'_,I2C0,Blocking>;
+type MyI2C = impl embedded_hal::i2c::I2c<SevenBitAddress>;
+
+//type MyI2C<'a> = I2C<'a,I2C0,Blocking>;
 
 // Pings the ST.com VL53L5CX time-of-flight sensor.
 //
@@ -74,58 +78,40 @@ fn vl_is_alive(i2c: &mut MyI2C) -> Result<[u8;2],I2CError>
 {
     let mut buf: [u8; 2] = [0; 2];
 
-    i2c.wr(0x7fff, &[0]);
-    i2c.rd(0, &mut buf);       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
-    i2c.wr(0x7fff, &[2]);
+    wr(i2c,0x7fff, &[0]);
+    rd(i2c,0, &mut buf);       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
+    wr(i2c,0x7fff, &[2]);
 
     Ok(buf)
 }
 
 // Return codes were a nightmare (never got them right!) so instead panicking inside these two. #giving-up
 //
-fn rd(&mut i2c: MyI2C, index: u16, buf: &mut [u8]) /*-> Result<(),I2CError>*/ {
+fn rd(i2c: &mut MyI2C, index: u16, buf: &mut [u8]) /*-> Result<(),I2CError>*/ {
     i2c.write_read(I2C_ADDR, &index.to_be_bytes(), buf)
         .ok();
 }
 
 // Q1: no 'write_write' in 'esp-hal::i2c::I2C'
-// Q2: any way to concatenate slices (of unknown size) together, in 'no_std'?
+// Q2: any way to concatenate slices (of unknown size) together, in 'no_std' (without 'alloc')? Likely not,
+//      unless the template approach is okay (would bloat size tho).
 //
-fn wr(&mut i2c: MyI2C, index: u16, vs: &[u8;1]) /*-> Result<(),I2CError>*/ {
+/*** could work; disabled
+fn wr/*<N: usize>*/(i2c: &mut MyI2C, index: u16, vs: &[u8;1/*N*/]) /*-> Result<(),I2CError>*/ {
     let index: [u8;2] = index.to_be_bytes();
-    let data: [u8;3] = [index[0], index[1], vs[0]];
+    let mut data: [u8;2+1/*N*/] = [index[0], index[1], 0];
+    // loop 1..N, placing 'vs' in 'data'
+    data[2] = vs[0];    // currently, just for one
+
     i2c.write(I2C_ADDR, &data).ok();
 }
-
-/*** reserve
-trait I2C_WW {
-    fn write_write(&mut self, addr: u8, prelude: &[u8;2], bytes: &[u8]) -> Result<(), I2C::Error>;
-}
-impl I2C_WW for I2C<I2C0,Blocking> {
-    // For symmetry with 'write_read' - ideas are welcome!!!
-    //
-    fn write_write(&mut self, addr: u8, prelude: &[u8;2], bytes: &[u8]) -> Result<(), I2C::Error> {
-
-        // #hack Since we don't know how to concatenate '[u8]'s in 'no_std', we support only the
-        //      1-byte long case.
-        //
-        #[cfg(not(feature = "embedded-hal"))]
-        let wr = |index: u16, vs: &[u8;1]| -> Result<(),_> {
-            let index: [u8;2] = index.to_be_bytes();
-            let data: [u8;3] = [index[0], index[1], vs[0]];
-            i2c.write(I2C_ADDR, &data)
-        };
-
-        // '.transaction' taken from how 'embedded_hal' implements '.write_read()'.
-        //
-        // tbd. If there's a way to '[addr, *vs].concat()' (concat slice-of-slices to a slice),
-        //      we don't need to do the '.transaction' (and don't need to specifically import 'embedded_hal').
-        #[cfg(feature = "embedded-hal")]
-        let wr = |addr: u16, vs: &[u8]| -> Result<(),_> {
-            let addr: [u8;2] = addr.to_be_bytes();
-            i2c.transaction(I2C_ADDR, &mut [I2cOperation::Write(&addr), I2cOperation::Write(vs)])
-        };
-
-    }
-}
 ***/
+
+// '.transaction' is only available if feature "embedded-hal" is enabled
+//
+#[cfg(feature="embedded-hal")]
+fn wr(i2c: &mut MyI2C, index: u16, vs: &[u8]) {
+    let index: [u8;2] = index.to_be_bytes();
+    i2c.transaction(I2C_ADDR, &mut [I2cOperation::Write(&index), I2cOperation::Write(vs)])
+        .ok();
+}
