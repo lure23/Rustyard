@@ -4,14 +4,13 @@
 #![no_main]
 
 #[allow(unused_imports)]
-use defmt::{debug, info, error};
+use defmt::{debug, info, error, Format};
 use defmt_rtt as _;
 
 use core::{
     ffi::c_void,
     ptr::NonNull
 };
-use defmt::Format;
 use esp_backtrace as _;
 #[cfg(feature = "dingdong")]
 use esp_hal::{
