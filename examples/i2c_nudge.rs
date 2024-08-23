@@ -15,9 +15,10 @@
 use defmt::{debug, info, error};
 use defmt_rtt as _;
 
+use core::cell::RefCell;
+
 #[cfg(feature="embedded-hal")]
 use embedded_hal::i2c::{
-    //I2c as _,        // to grant access to '.transaction()'
     Operation as I2cOperation
 };
 
@@ -26,7 +27,7 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
     gpio::Io,
-    i2c::{I2C, Error as I2CError},
+    i2c::I2C,
     delay::Delay,
     peripherals::Peripherals,
     prelude::*,
@@ -44,15 +45,18 @@ fn main() -> ! {
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let i2c_bus = I2C::new(
-        peripherals.I2C0,   // controller 0
+    // Resource sharing the I2C bus is not needed by this simple sample, but comes handy with
+    // more than one device on the bus.
+    //
+    let i2c = RefCell::new( I2C::new(
+        peripherals.I2C0,   // controller
         io.pins.gpio4,
         io.pins.gpio5,
-        100.kHz(),
+        100.kHz(),          // try up to 400
         &clocks,
         None
-    );
-    let mut vl: VL<_> = VL::new(i2c_bus, I2C_ADDR);
+    ));
+    let mut vl: VL<_> = VL::new(i2c, I2C_ADDR);
 
     let delay_ms = {
         static D: StaticCell<Delay> = StaticCell::new();
@@ -61,70 +65,67 @@ fn main() -> ! {
     };
 
     loop {
-        let [dev_id,rev_id] = vl.is_alive();
-        info!("Got: {=u8}, {=u8}", dev_id, rev_id);
+        match vl.is_alive() {
+            Ok([dev_id,rev_id]) =>
+                info!("Got: {=u8:#04x}, {=u8:#04x}", dev_id, rev_id),     // expecting '0xf0', '0x02'
+            Err(e) =>
+                error!("Failed with: {}", e)
+        }
 
         delay_ms(3000);
     }
 }
 
-struct VL<T : embedded_hal::i2c::I2c<SevenBitAddress>> {
-    inner: T,
+struct VL<T>
+    where T: embedded_hal::i2c::I2c<SevenBitAddress>
+{
+    bus: RefCell<T>,
     addr: u8
 }
 
-impl<T : embedded_hal::i2c::I2c<SevenBitAddress>> VL<T> {
-    fn new(inner: T, addr_8b: u8) -> Self {
+impl<T> VL<T>
+    where T: embedded_hal::i2c::I2c<SevenBitAddress>
+{
+    // Cannot do this, because -> https://github.com/rust-lang/rust/issues/8995#issuecomment-1569208403
+    //type Result<X> = core::result::Result<X,E>;
+    //type Result<X> = core::result::Result<X,T::Error>;
+    //type E = T::Error;
+    //type Result = T::Result;
+
+    fn new(bus: RefCell<T>, addr_8b: u8) -> Self {
         Self {
-            inner,
+            bus,
             addr: addr_8b >> 1     // make 8-bit addr to 7-bit
         }
     }
 
     // Pings the ST.com VL53L5CX time-of-flight sensor.
     //
-    fn is_alive(&mut self) -> [u8;2] {
+    fn is_alive(&mut self) -> T::Result<[u8;2]> {
         let mut buf = [0u8;2];
 
-        self.wr(0x7fff, &[0]);
-        self.rd(0, &mut buf);       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
-        self.wr(0x7fff, &[2]);
-        buf
+        self.wr(0x7fff, &[0])?;
+        self.rd(0, &mut buf)?;       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
+        self.wr(0x7fff, &[2])?;
+        Ok(buf)
     }
 
     // Return codes were a nightmare (never got them right!) so instead panicking inside these two. #giving-up
     //
-    fn rd(&mut self, index: u16, buf: &mut [u8]) /*-> Result<(),I2CError>*/ {
-        self.inner.write_read(self.addr, &index.to_be_bytes(), buf)
-            .ok();
+    fn rd(&mut self, index: u16, buf: &mut [u8]) -> T::Result<()> {
+        let mut bus = self.bus.borrow_mut();
+        bus.write_read(self.addr, &index.to_be_bytes(), buf)
     }
-
-    // Q1: no 'write_write' in 'esp-hal::i2c::I2C'
-    // Q2: any way to concatenate slices (of unknown size) together, in 'no_std' (without 'alloc')? Likely not,
-    //      unless the template approach is okay (would bloat size tho).
-    //
-    /*** could work; disabled
-    fn wr/*<N: usize>*/(i2c: &mut MyI2C, index: u16, vs: &[u8;1/*N*/]) /*-> Result<(),I2CError>*/ {
-        let index: [u8;2] = index.to_be_bytes();
-        let mut data: [u8;2+1/*N*/] = [index[0], index[1], 0];
-        // loop 1..N, placing 'vs' in 'data'
-        data[2] = vs[0];    // currently, just for one
-
-        i2c.write(I2C_ADDR, &data).ok();
-    }
-    ***/
 
     // '.transaction' is only available if feature "embedded-hal" is enabled (wonder why)
     //
     #[cfg(feature = "embedded-hal")]
-    fn wr(&mut self, index: u16, vs: &[u8]) {
-        let index: [u8; 2] = index.to_be_bytes();
+    fn wr(&mut self, index: u16, vs: &[u8]) -> T::Result<()> {
+        // Cannot concatenate 'index' and 'vs' without 'alloc' (could, if we limit or use generics
+        // on the length), but '.transaction' allows the writes to be atomic on the bus.
 
-        // Cannot concatenate 'index' and 'vs' without 'alloc' (could, if we limit or generice the
-        // length of the 'vs'), but there's this '.transaction' thing (found by looking at implementation
-        // of '::write_read()').
-        //
-        self.inner.transaction(self.addr, &mut [I2cOperation::Write(&index), I2cOperation::Write(vs)])
-            .ok();
+        let mut bus = self.bus.borrow_mut();
+        let index: [u8; 2] = index.to_be_bytes();
+        bus.transaction(self.addr, &mut [I2cOperation::Write(&index), I2cOperation::Write(vs)])
     }
 }
