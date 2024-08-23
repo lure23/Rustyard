@@ -16,7 +16,11 @@ use defmt::{debug, info, error};
 use defmt_rtt as _;
 
 #[cfg(feature="embedded-hal")]
-use embedded_hal::i2c::Operation as I2cOperation;
+use embedded_hal::i2c::{
+    //I2c as _,        // to grant access to '.transaction()'
+    Operation as I2cOperation
+};
+
 use embedded_hal::i2c::SevenBitAddress;
 use esp_backtrace as _;
 use esp_hal::{
@@ -24,12 +28,13 @@ use esp_hal::{
     gpio::Io,
     i2c::{I2C, Error as I2CError},
     delay::Delay,
-    peripherals::{I2C0, Peripherals},
+    peripherals::Peripherals,
     prelude::*,
     system::SystemControl,
-    Blocking,
 };
 use static_cell::StaticCell;
+
+const I2C_ADDR: u8 = 0x52;  // default of VL sensor
 
 #[entry]
 fn main() -> ! {
@@ -39,7 +44,7 @@ fn main() -> ! {
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
 
-    let mut i2c: MyI2C = I2C::new(
+    let i2c_bus = I2C::new(
         peripherals.I2C0,   // controller 0
         io.pins.gpio4,
         io.pins.gpio5,
@@ -47,6 +52,7 @@ fn main() -> ! {
         &clocks,
         None
     );
+    let mut vl: VL<_> = VL::new(i2c_bus, I2C_ADDR);
 
     let delay_ms = {
         static D: StaticCell<Delay> = StaticCell::new();
@@ -55,63 +61,70 @@ fn main() -> ! {
     };
 
     loop {
-        match vl_is_alive(&mut i2c) {
-            Ok([dev_id, rev_id]) =>
-                info!("Got: {=u8}, {=u8}", dev_id, rev_id),
-            Err(e) =>
-                error!("Failed: {:?}", e)
-        }
+        let [dev_id,rev_id] = vl.is_alive();
+        info!("Got: {=u8}, {=u8}", dev_id, rev_id);
 
         delay_ms(3000);
     }
 }
 
-type MyI2C = impl embedded_hal::i2c::I2c<SevenBitAddress>;
-
-//type MyI2C<'a> = I2C<'a,I2C0,Blocking>;
-
-// Pings the ST.com VL53L5CX time-of-flight sensor.
-//
-const I2C_ADDR: u8 = 0x52 >> 1;
-
-fn vl_is_alive(i2c: &mut MyI2C) -> Result<[u8;2],I2CError>
-{
-    let mut buf: [u8; 2] = [0; 2];
-
-    wr(i2c,0x7fff, &[0]);
-    rd(i2c,0, &mut buf);       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
-    wr(i2c,0x7fff, &[2]);
-
-    Ok(buf)
+struct VL<T : embedded_hal::i2c::I2c<SevenBitAddress>> {
+    inner: T,
+    addr: u8
 }
 
-// Return codes were a nightmare (never got them right!) so instead panicking inside these two. #giving-up
-//
-fn rd(i2c: &mut MyI2C, index: u16, buf: &mut [u8]) /*-> Result<(),I2CError>*/ {
-    i2c.write_read(I2C_ADDR, &index.to_be_bytes(), buf)
-        .ok();
-}
+impl<T : embedded_hal::i2c::I2c<SevenBitAddress>> VL<T> {
+    fn new(inner: T, addr_8b: u8) -> Self {
+        Self {
+            inner,
+            addr: addr_8b >> 1     // make 8-bit addr to 7-bit
+        }
+    }
 
-// Q1: no 'write_write' in 'esp-hal::i2c::I2C'
-// Q2: any way to concatenate slices (of unknown size) together, in 'no_std' (without 'alloc')? Likely not,
-//      unless the template approach is okay (would bloat size tho).
-//
-/*** could work; disabled
-fn wr/*<N: usize>*/(i2c: &mut MyI2C, index: u16, vs: &[u8;1/*N*/]) /*-> Result<(),I2CError>*/ {
-    let index: [u8;2] = index.to_be_bytes();
-    let mut data: [u8;2+1/*N*/] = [index[0], index[1], 0];
-    // loop 1..N, placing 'vs' in 'data'
-    data[2] = vs[0];    // currently, just for one
+    // Pings the ST.com VL53L5CX time-of-flight sensor.
+    //
+    fn is_alive(&mut self) -> [u8;2] {
+        let mut buf = [0u8;2];
 
-    i2c.write(I2C_ADDR, &data).ok();
-}
-***/
+        self.wr(0x7fff, &[0]);
+        self.rd(0, &mut buf);       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
+        self.wr(0x7fff, &[2]);
+        buf
+    }
 
-// '.transaction' is only available if feature "embedded-hal" is enabled
-//
-#[cfg(feature="embedded-hal")]
-fn wr(i2c: &mut MyI2C, index: u16, vs: &[u8]) {
-    let index: [u8;2] = index.to_be_bytes();
-    i2c.transaction(I2C_ADDR, &mut [I2cOperation::Write(&index), I2cOperation::Write(vs)])
-        .ok();
+    // Return codes were a nightmare (never got them right!) so instead panicking inside these two. #giving-up
+    //
+    fn rd(&mut self, index: u16, buf: &mut [u8]) /*-> Result<(),I2CError>*/ {
+        self.inner.write_read(self.addr, &index.to_be_bytes(), buf)
+            .ok();
+    }
+
+    // Q1: no 'write_write' in 'esp-hal::i2c::I2C'
+    // Q2: any way to concatenate slices (of unknown size) together, in 'no_std' (without 'alloc')? Likely not,
+    //      unless the template approach is okay (would bloat size tho).
+    //
+    /*** could work; disabled
+    fn wr/*<N: usize>*/(i2c: &mut MyI2C, index: u16, vs: &[u8;1/*N*/]) /*-> Result<(),I2CError>*/ {
+        let index: [u8;2] = index.to_be_bytes();
+        let mut data: [u8;2+1/*N*/] = [index[0], index[1], 0];
+        // loop 1..N, placing 'vs' in 'data'
+        data[2] = vs[0];    // currently, just for one
+
+        i2c.write(I2C_ADDR, &data).ok();
+    }
+    ***/
+
+    // '.transaction' is only available if feature "embedded-hal" is enabled (wonder why)
+    //
+    #[cfg(feature = "embedded-hal")]
+    fn wr(&mut self, index: u16, vs: &[u8]) {
+        let index: [u8; 2] = index.to_be_bytes();
+
+        // Cannot concatenate 'index' and 'vs' without 'alloc' (could, if we limit or generice the
+        // length of the 'vs'), but there's this '.transaction' thing (found by looking at implementation
+        // of '::write_read()').
+        //
+        self.inner.transaction(self.addr, &mut [I2cOperation::Write(&index), I2cOperation::Write(vs)])
+            .ok();
+    }
 }
