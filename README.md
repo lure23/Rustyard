@@ -13,12 +13,47 @@ Minimal experiments to see, how things can be done in Rust.
 	```
 	
 
-## Steps
+## Running
 
 ```
 $ [DEFMT_LOG=debug] cargo run --release --example a
 ```
 
+### `i2c_nudge` example
+
+```
+$ cargo run --release --features=embedded-hal --example i2c_nudge
+```
+
+The code serves as a sample on how to use the I2C bus. It uses the ST.com [VL53L5CX-SATEL](https://www.st.com/en/evaluation-tools/vl53l5cx-satel.html) breakout board<!-- #whisper marking "4.322" on the PCB -->. 
+
+To run the example, wire these:
+
+|ESP32-C3/C6|signal|SATEL|
+|---|---|---|
+|GPIO4|SDA|SDA|
+|GPIO5|SCL|SCL|
+|---|chip enable|LPn, via 47kΩ to GND|
+|---|power enable|PWREN, via 22kΩ to AVDD (5V)|
+
+<!--
+|(GPIO6)|reset; active high|I2C_RST|
+-->
+Without having its firmware uploaded (by a driver), the board isn't fully operational. You may get:
+
+**with board connected**
+
+```
+INFO  Got: 0x03, 0x00
+```
+
+>Note: The right values should be `0xf0`, `0x02`.
+
+**without the board**
+
+```
+ERROR Failed with: AckCheckFailed
+```
 
 ## Troubleshooting
 
