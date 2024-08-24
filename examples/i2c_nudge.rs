@@ -52,7 +52,7 @@ fn main() -> ! {
         peripherals.I2C0,   // controller
         io.pins.gpio4,
         io.pins.gpio5,
-        100.kHz(),          // try up to 400
+        100.kHz(),          // try 400
         &clocks,
         None
     ));
@@ -87,10 +87,8 @@ impl<T> VL<T>
     where T: embedded_hal::i2c::I2c<SevenBitAddress>
 {
     // Cannot do this, because -> https://github.com/rust-lang/rust/issues/8995#issuecomment-1569208403
-    //type Result<X> = core::result::Result<X,E>;
     //type Result<X> = core::result::Result<X,T::Error>;
     //type E = T::Error;
-    //type Result = T::Result;
 
     fn new(bus: RefCell<T>, addr_8b: u8) -> Self {
         Self {
@@ -101,8 +99,8 @@ impl<T> VL<T>
 
     // Pings the ST.com VL53L5CX time-of-flight sensor.
     //
-    fn is_alive(&mut self) -> T::Result<[u8;2]> {
-        let mut buf = [0u8;2];
+    fn is_alive(&mut self) -> Result<[u8;2],T::Error> {
+        let mut buf = [u8::MAX;2];
 
         self.wr(0x7fff, &[0])?;
         self.rd(0, &mut buf)?;       // indices 0,1 are (device id, rev id); should give (0xf0, 0x02)
@@ -112,7 +110,7 @@ impl<T> VL<T>
 
     // Return codes were a nightmare (never got them right!) so instead panicking inside these two. #giving-up
     //
-    fn rd(&mut self, index: u16, buf: &mut [u8]) -> T::Result<()> {
+    fn rd(&mut self, index: u16, buf: &mut [u8]) -> Result<(),T::Error> {
         let mut bus = self.bus.borrow_mut();
         bus.write_read(self.addr, &index.to_be_bytes(), buf)
     }
@@ -120,7 +118,7 @@ impl<T> VL<T>
     // '.transaction' is only available if feature "embedded-hal" is enabled (wonder why)
     //
     #[cfg(feature = "embedded-hal")]
-    fn wr(&mut self, index: u16, vs: &[u8]) -> T::Result<()> {
+    fn wr(&mut self, index: u16, vs: &[u8]) -> Result<(),T::Error> {
         // Cannot concatenate 'index' and 'vs' without 'alloc' (could, if we limit or use generics
         // on the length), but '.transaction' allows the writes to be atomic on the bus.
 
